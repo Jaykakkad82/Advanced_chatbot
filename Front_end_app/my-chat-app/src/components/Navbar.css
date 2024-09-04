@@ -1,0 +1,20 @@
+/* src/components/Navbar.css */
+.navbar {
+    display: flex;
+    align-items: center;
+    background-color: rgb(91, 86, 86);
+    padding: 10px 20px;
+  }
+  
+  .logo {
+    height: 60px; /* Adjust the size according to your logo */
+    margin-right: 15px;
+  }
+  
+  .navbar-title {
+    color: white;
+    font-weight: bold;
+    font-size: 24px;
+    margin: 0;  /* Remove any default margin */
+  }
+  

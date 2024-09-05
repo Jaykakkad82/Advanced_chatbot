@@ -2,20 +2,20 @@ from flask import Flask, request, jsonify
 import openai
 from langchain_experimental.graph_transformers import LLMGraphTransformer
 from langchain.vectorstores import Neo4jVectorStore
-from langchain.embeddings import OpenAIEmbeddings
-from PyPDF2 import PdfReader
+
 from neo4j import GraphDatabase
-import os
+
 import fitz  # PyMuPDF
 import pdfplumber
 import pandas as pd
+from sensitive import NEO_PASS_WORD  # saved passowrd ina sensitive.py file (igored by git)
 
 app = Flask(__name__)
 
 # Initialize Neo4j database for storing the knowledge graph
 NEO4J_URI = "bolt://localhost:7687"
 NEO4J_USER = "neo4j"
-NEO4J_PASSWORD = "password"
+NEO4J_PASSWORD = NEO_PASS_WORD
 graph_db = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
 # session
@@ -119,3 +119,69 @@ def upload_pdfs():
 
     # return jsonify({"message": "PDFs processed and knowledge graph created"}), 200
 
+
+# Function to rewrite the query
+def rewrite_query(user_query):
+    prompt = f"Rewrite the following query as though it is related to annual reports and is asked by an equity research analyst: {user_query}"
+    response = openai.Completion.create(
+        engine="text-davinci-003",
+        prompt=prompt,
+        max_tokens=100
+    )
+    rewritten_query = response.choices[0].text.strip()
+    return rewritten_query
+
+# Route to handle user queries
+@app.route('/api/v1/ask-question', methods=['POST'])
+def ask_question():
+    data = request.json
+    session_id = data.get('session_id', 'default')  # Use 'default' if no session ID provided
+    user_query = data.get('question')
+
+    # Check if the session exists and if an API key is stored for the session
+    if session_id not in conversations or 'api_key' not in conversations[session_id]:
+        return jsonify({"error": "No API key found for this session"}), 400
+    
+    api_key = conversations[session_id]['api_key']
+
+    openai.api_key = api_key
+
+    # Rewrite the query for context
+    rewritten_query = rewrite_query(user_query)
+
+    # Use the query to extract context from the knowledge graph (from Neo4j)
+    vectorstore = Neo4jVectorStore(driver=graph_db)
+    context = vectorstore.similarity_search(rewritten_query)
+
+    # Send context + query to OpenAI LLM
+    full_prompt = f"{rewritten_query}\nContext: {context}"
+    response = openai.Completion.create(
+        engine="text-davinci-003",
+        prompt=full_prompt,
+        max_tokens=150
+    )
+    answer = response.choices[0].text.strip()
+
+    return jsonify({"answer": answer}), 200
+
+# Handle API key storage
+@app.route('/api/v1/store-api-key', methods=['POST'])
+def store_api_key():
+    data = request.json
+    session_id = data.get('session_id', 'default')  # Use 'default' if no session ID provided
+    api_key = data.get('api_key')
+    
+    if not api_key:
+        return jsonify({"error": "API key is missing"}), 400
+    
+    # Initialize the session if it doesn't exist
+    if session_id not in conversations:
+        conversations[session_id] = {}
+    
+    # Store the API key for this session
+    conversations[session_id]['api_key'] = api_key
+    
+    return jsonify({"message": "API key stored successfully", "session_id": session_id})
+
+if __name__ == '__main__':
+    app.run(debug=True)

@@ -6,3 +6,9 @@ PyPDF2
 faiss-cpu
 openai
 python-dotenv
+langchain_experimental
+neo4j
+networkx
+PyMuPDF
+pdfplumber
+pandas
